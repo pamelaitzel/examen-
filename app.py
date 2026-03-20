@@ -39,7 +39,6 @@ processed_df = df.copy()
 if "ORDERDATE" in processed_df.columns:
     processed_df["ORDERDATE"] = pd.to_datetime(processed_df["ORDERDATE"], errors="coerce")
 
-# columnas de apoyo para gráficas temporales
 if "ORDERDATE" in processed_df.columns:
     processed_df["MONTH"] = processed_df["ORDERDATE"].dt.month
     processed_df["YEAR"] = processed_df["ORDERDATE"].dt.year
@@ -56,6 +55,7 @@ processed_df.drop(
     errors="ignore"
 )
 
+# Este dataset procesado se usa para otras vistas generales
 if "STATUS" in processed_df.columns:
     processed_df.drop(columns=["STATUS"], inplace=True)
 
@@ -84,7 +84,7 @@ st.subheader("Dataset procesado")
 st.dataframe(numeric_df.head())
 
 # -----------------------------
-# ESCALADO
+# ESCALADO GENERAL
 # -----------------------------
 scaler = StandardScaler()
 scaled_data = scaler.fit_transform(numeric_df)
@@ -241,38 +241,89 @@ elif opcion == "Método del codo":
     st.plotly_chart(fig, use_container_width=True)
 
 elif opcion == "Clusters con PCA":
-    max_clusters = min(8, len(numeric_df))
-    max_clusters = max(2, max_clusters)
+    columnas_cluster = [
+        "QUANTITYORDERED",
+        "PRICEEACH",
+        "SALES",
+        "MSRP",
+        "MONTH_ID",
+        "YEAR_ID"
+    ]
 
-    n_clusters = st.slider("Número de clusters", 2, max_clusters, min(5, max_clusters))
+    columnas_existentes = [col for col in columnas_cluster if col in df.columns]
 
-    kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
-    clusters = kmeans.fit_predict(scaled_data)
+    if len(columnas_existentes) >= 2:
+        cluster_df = df[columnas_existentes].copy()
+        cluster_df = cluster_df.dropna()
 
-    pca = PCA(n_components=2)
-    pca_components = pca.fit_transform(scaled_data)
+        if len(cluster_df) < 3:
+            st.warning("No hay suficientes registros válidos para generar clusters.")
+        else:
+            scaler_cluster = StandardScaler()
+            scaled_cluster_data = scaler_cluster.fit_transform(cluster_df)
 
-    pca_df = pd.DataFrame(pca_components, columns=["PCA1", "PCA2"])
-    pca_df["cluster"] = clusters.astype(str)
+            max_clusters = min(8, len(cluster_df))
+            max_clusters = max(2, max_clusters)
 
-    fig = px.scatter(
-        pca_df,
-        x="PCA1",
-        y="PCA2",
-        color="cluster",
-        title="Clusters con PCA"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+            valor_default = 5 if max_clusters >= 5 else max_clusters
+
+            n_clusters = st.slider(
+                "Número de clusters",
+                2,
+                max_clusters,
+                valor_default
+            )
+
+            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+            clusters = kmeans.fit_predict(scaled_cluster_data)
+
+            pca = PCA(n_components=2)
+            pca_components = pca.fit_transform(scaled_cluster_data)
+
+            pca_df = pd.DataFrame(pca_components, columns=["PCA1", "PCA2"])
+            pca_df["cluster"] = clusters.astype(str)
+
+            fig = px.scatter(
+                pca_df,
+                x="PCA1",
+                y="PCA2",
+                color="cluster",
+                title="Visualización de clusters con PCA",
+                labels={"cluster": "Cluster"}
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+            st.write("Variables usadas para clustering:", columnas_existentes)
+    else:
+        st.warning("No hay suficientes columnas numéricas adecuadas para clustering.")
 
 elif opcion == "Matriz de correlación":
-    corr = numeric_df.corr()
+    columnas_corr = [
+        "QUANTITYORDERED",
+        "PRICEEACH",
+        "SALES",
+        "MSRP",
+        "MONTH_ID",
+        "YEAR_ID"
+    ]
 
-    fig = px.imshow(
-        corr,
-        color_continuous_scale="Viridis",
-        title="Matriz de correlación"
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    columnas_existentes = [col for col in columnas_corr if col in df.columns]
+
+    if len(columnas_existentes) >= 2:
+        corr_df = df[columnas_existentes].copy()
+        corr = corr_df.corr(numeric_only=True)
+
+        fig = px.imshow(
+            corr,
+            text_auto=True,
+            color_continuous_scale="Viridis",
+            title="Matriz de correlación"
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        st.write("Variables usadas en la matriz:", columnas_existentes)
+    else:
+        st.warning("No hay suficientes columnas numéricas adecuadas para la matriz de correlación.")
 
 elif opcion == "Boxplot de ventas":
     if "SALES" in df.columns:
@@ -302,17 +353,39 @@ elif opcion == "Histograma de ventas":
 # -----------------------------
 st.subheader("Descargar resultados")
 
-kmeans_final = KMeans(n_clusters=5, random_state=42, n_init=10)
-clusters_final = kmeans_final.fit_predict(scaled_data)
+columnas_cluster_descarga = [
+    "QUANTITYORDERED",
+    "PRICEEACH",
+    "SALES",
+    "MSRP",
+    "MONTH_ID",
+    "YEAR_ID"
+]
 
-download_df = numeric_df.copy()
-download_df["cluster"] = clusters_final
+columnas_descarga_existentes = [col for col in columnas_cluster_descarga if col in df.columns]
 
-csv = download_df.to_csv(index=False).encode("utf-8")
+if len(columnas_descarga_existentes) >= 2:
+    download_df = df[columnas_descarga_existentes].copy().dropna()
 
-st.download_button(
-    "Descargar CSV con clusters",
-    csv,
-    "clusters_marketing_ai.csv",
-    "text/csv"
-)
+    if len(download_df) >= 3:
+        scaler_download = StandardScaler()
+        scaled_download = scaler_download.fit_transform(download_df)
+
+        n_clusters_download = 5 if len(download_df) >= 5 else 2
+        kmeans_final = KMeans(n_clusters=n_clusters_download, random_state=42, n_init=10)
+        clusters_final = kmeans_final.fit_predict(scaled_download)
+
+        download_df["cluster"] = clusters_final
+
+        csv = download_df.to_csv(index=False).encode("utf-8")
+
+        st.download_button(
+            "Descargar CSV con clusters",
+            csv,
+            "clusters_marketing_ai.csv",
+            "text/csv"
+        )
+    else:
+        st.warning("No hay suficientes datos para generar el archivo de descarga con clusters.")
+else:
+    st.warning("No hay suficientes columnas para preparar la descarga de clusters.")
